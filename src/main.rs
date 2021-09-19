@@ -1,99 +1,30 @@
-use rand::Rng;
 use warp::filters;
 use warp::http::header::{CACHE_CONTROL, CONTENT_TYPE, REFRESH, SET_COOKIE};
 use warp::Filter;
 
-const REFRESH_TARGET: &str = "1;https://aleksei.nl";
+const REFRESH_TARGET: &str = "2;https://aleksei.nl";
 
 const IP: [u8; 4] = [0, 0, 0, 0];
 const PORT: u16 = 3030;
 
-const COOKIE_NAME: &str = "two";
-const MIN_FONT_SIZE: f32 = 16.0;
-const MAX_FONT_SIZE: f32 = 300.0;
-const VORONOVS_FOR_A_STAR: usize = 60;
-const MAX_VORONOVS: usize = 80;
-
-struct Aleksei {
-    x: f32,
-    y: f32,
-    font_size: f32,
-}
-
-fn deserialize_alekseis(string: String) -> Vec<Aleksei> {
-    string
-        .split("|")
-        .filter_map(|aleksei_str| {
-            let mut values_str = aleksei_str.split(',');
-
-            let x = values_str.next().and_then(|x_str| x_str.parse().ok());
-            let y = values_str.next().and_then(|y_str| y_str.parse().ok());
-            let font_size = values_str.next().and_then(|fs_str| fs_str.parse().ok());
-
-            let x = match x {
-                None => return None,
-                Some(x) => x,
-            };
-
-            let y = match y {
-                None => return None,
-                Some(y) => y,
-            };
-
-            let font_size = match font_size {
-                None => return None,
-                Some(font_size) => font_size,
-            };
-
-            if let Some(_) = values_str.next() {
-                return None;
-            }
-
-            Some(Aleksei { x, y, font_size })
-        })
-        .collect()
-}
-
-fn serialize_alekseis(alekseis: &Vec<Aleksei>) -> String {
-    let mut string = String::new();
-
-    let mut alekseis_iter = alekseis
-        .into_iter()
-        .map(|a| format!("{},{},{}", a.x, a.y, a.font_size));
-
-    match alekseis_iter.next() {
-        Some(aleksei_str) => string.push_str(&aleksei_str),
-        None => return string,
-    };
-
-    for aleksei_str in alekseis_iter {
-        string.push('|');
-        string.push_str(&aleksei_str);
-    }
-
-    string
-}
+const COOKIE_NAME: &str = "three";
 
 #[tokio::main]
 async fn main() {
-    let hello = warp::any().and(filters::cookie::optional(COOKIE_NAME)).map(
-        |serialized_alekseis: Option<String>| {
-            let mut rng = rand::thread_rng();
-
-            let mut alekseis = serialized_alekseis
-                .map(deserialize_alekseis)
-                .unwrap_or(Vec::new());
-
-            alekseis.push(Aleksei {
-                x: rng.gen(),
-                y: rng.gen(),
-                font_size: rng.gen_range(MIN_FONT_SIZE..MAX_FONT_SIZE),
-            });
-
-            let mut html = r#"
+    let hello = warp::any()
+        .and(filters::cookie::optional(COOKIE_NAME))
+        .map(|_: Option<String>| {
+            let html = r#"
 <title>Aleksei</title>
 
 <style>
+@import url(https://fonts.googleapis.com/css?family=Exo+2:200i);
+
+html {
+    --neon-text-color: #f40;
+    --neon-border-color: #08f;
+}
+
 html, body {
     padding: 0;
     margin: 0;
@@ -104,56 +35,69 @@ html, body {
 body {
     background: black;
     color: white;
-    font-family: sans-serif;
-    font-weight: bold;
+    font-family: 'Exo 2', sans-serif;
     white-space: nowrap;
+    font-style: italic;
     overflow: hidden;
+    font-size: 20vh;
+    letter-spacing: -0.1vh;
 }
 
 span {
     position: absolute;
+    top: 50%;
+    left: 50%;
     transform: translate(-50%, -50%);
+    animation: flicker 1s infinite alternate;
+    padding: 4rem 6rem 5.5rem;
+    border: 0.4rem solid #fff;
+    border-radius: 2rem;
+    text-transform: uppercase;
 }
 
-.star {
-    left: 50%;
-    top: 50%;
-    font-size: 150px;
+@keyframes flicker {
+    0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+
+        text-shadow:
+            -0.2rem -0.2rem 1rem #fff,
+            0.2rem 0.2rem 1rem #fff,
+            0 0 2rem var(--neon-text-color),
+            0 0 4rem var(--neon-text-color),
+            0 0 6rem var(--neon-text-color),
+            0 0 8rem var(--neon-text-color),
+            0 0 10rem var(--neon-text-color);
+
+        box-shadow:
+            0 0 .5rem #fff,
+            inset 0 0 .5rem #fff,
+            0 0 2rem var(--neon-border-color),
+            inset 0 0 2rem var(--neon-border-color),
+            0 0 4rem var(--neon-border-color),
+            inset 0 0 4rem var(--neon-border-color);
+    }
+
+    20%, 24%, 55% {
+        text-shadow: none;
+        box-shadow: none;
+    }
 }
 </style>
+
+<span>
+Aleksei
+</span>
 "#
             .to_string();
 
-            for aleksei in &alekseis {
-                html.push_str(&format!(
-                    "<span style=\"left: {}%; top: {}%; font-size: {}px\">Aleksei</span>",
-                    aleksei.x * 100.0,
-                    aleksei.y * 100.0,
-                    aleksei.font_size
-                ));
-            }
-
-            if alekseis.len() >= VORONOVS_FOR_A_STAR {
-                html.push_str("<span class=\"star\">⭐️</span>");
-            }
-
-            if alekseis.len() >= MAX_VORONOVS {
-                alekseis = Vec::new();
-            }
-
             warp::http::response::Builder::new()
                 .header(CONTENT_TYPE, "text/html; charset=utf-8")
-                .header(
-                    SET_COOKIE,
-                    format!("{}={}", COOKIE_NAME, serialize_alekseis(&alekseis)),
-                )
+                .header(SET_COOKIE, format!("{}={}", COOKIE_NAME, ""))
                 .header(CACHE_CONTROL, "no-store")
                 .header(REFRESH, REFRESH_TARGET)
                 .status(200)
                 .body(html)
                 .unwrap()
-        },
-    );
+        });
 
     warp::serve(hello).run((IP, PORT)).await;
 }
