@@ -1,36 +1,67 @@
-use rand::Rng;
-use warp::filters;
-use warp::http::header::{CACHE_CONTROL, CONTENT_TYPE, REFRESH, SET_COOKIE};
+use warp::http::header::{CACHE_CONTROL, CONTENT_TYPE, REFRESH};
 use warp::Filter;
-
-const REFRESH_TARGET: &str = "2;https://aleksei.nl";
 
 const IP: [u8; 4] = [0, 0, 0, 0];
 const PORT: u16 = 3030;
 
-const COOKIE_NAME: &str = "five";
-
-const CATS: [&'static str; 5] = [
-    "lechat-1.png",
-    "lechat-2.png",
-    "lechat-3.png",
-    "lechat-4.png",
-    "lechat-5.png",
+const FRAMES: &'static [Frame] = &[
+    Frame::Dialogue("Hey.", 2),
+    Frame::Dialogue("Sure.", 2),
+    Frame::Dialogue("I work at the bank.", 2),
+    Frame::Dialogue("Not very much, no.", 2),
+    Frame::Dialogue("I’d like to be an artist", 2),
+    Frame::Dialogue("I don’t know how to.", 2),
+    Frame::Dialogue("Yes, very much.", 2),
+    Frame::Art("good-art-1.png"),
+    Frame::Art("good-art-2.jpg"),
+    Frame::Dialogue("I’m afraid.", 2),
+    Frame::Dialogue("Okay, I will do it.", 2),
+    Frame::Dialogue("Oh wow! That was nice.", 2),
+    Frame::Art("weirder-cat-1.jpg"),
+    Frame::Art("weirder-cat-3.jpg"),
+    Frame::Art("weirder-cat-5.jpg"),
+    Frame::Art("weirder-cat-6.jpg"),
+    Frame::End,
 ];
+
+enum Frame {
+    Dialogue(&'static str, u8),
+    Art(&'static str),
+    End,
+}
 
 #[tokio::main]
 async fn main() {
-    let hello =
+    let init =
         warp::path::end()
-            .and(filters::cookie::optional(COOKIE_NAME))
-            .map(|maybe_cat: Option<usize>| {
-                let mut cat_number = maybe_cat.unwrap_or(0);
+            .map(|| {
+                warp::http::response::Builder::new()
+                    .header(CONTENT_TYPE, "text/html; charset=utf-8")
+                    .header(CACHE_CONTROL, "no-store")
+                    .header(REFRESH, "1;https://aleksei.nl/0")
+                    .status(200)
+                    .body("")
+                    .unwrap()
+            });
 
-                if cat_number >= CATS.len() {
-                    cat_number = 0;
-                }
+    let frame =
+        warp::path::param::<usize>()
+            .and(warp::path::end())
+            .map(|n: usize| {
+                let n = if n > FRAMES.len() { 0 } else { n };
 
-                let html = format!(r#"
+                let (frame_html, delay) = match FRAMES[n] {
+                    Frame::Dialogue(text, delay) => (format!("<div class=\"dialogue\">{}</div>", text), delay),
+                    Frame::Art(filename) => (format!("<img src=\"/resources/{}\"/>", filename), 3),
+                    Frame::End => ("<div class=\"fin\">fin</div>".to_owned(), 5),
+                };
+
+                let html =
+                    format!(r#"
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yaldevi&display=swap" rel="stylesheet">
+
 <title>Aleksei</title>
 
 <style>
@@ -42,62 +73,55 @@ html, body {{
 }}
 
 body {{
-    background: #c8b9a4;
-    color: #2d2924;
-    font-family: 'Cedarville Cursive', cursive;
-    font-size: 7vh;
+    background: white;
+    color: #222;
     overflow: hidden;
-}}
-
-p {{
-    margin: 0;
-    padding: 0;
-    margin-top: 7vh;
-    line-height: 7vh;
-}}
-
-div {{
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
     text-align: center;
+    font-size: 5vh;
+    font-family: 'Yaldevi', serif;
+    line-height: 5vh;
+}}
+
+.dialogue {{
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 100%;
 }}
 
 img {{
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     height: 50vh;
+}}
+
+.fin {{
+    position: absolute;
+    font-size: 10vh;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
 }}
 </style>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cedarville+Cursive&display=swap" rel="stylesheet">
+{}
+"#, frame_html);
 
-<div>
-    <img src="/resources/{}" alt="le chat" title="le chat">
-    <p>
-        Ceci n'est pas un Aleksei
-    </p>
-</div>
-"#, CATS[cat_number]);
+                let refresh_target = format!("{};https://aleksei.nl/{}", delay, n + 1);
 
-            cat_number += 1;
-
-            warp::http::response::Builder::new()
-                .header(CONTENT_TYPE, "text/html; charset=utf-8")
-                .header(
-                    SET_COOKIE,
-                    format!("{}={}", COOKIE_NAME, cat_number),
-                )
-                .header(CACHE_CONTROL, "no-store")
-                .header(REFRESH, REFRESH_TARGET)
-                .status(200)
-                .body(html)
-                .unwrap()
-        },
-    );
+                warp::http::response::Builder::new()
+                    .header(CONTENT_TYPE, "text/html; charset=utf-8")
+                    .header(CACHE_CONTROL, "no-store")
+                    .header(REFRESH, refresh_target)
+                    .status(200)
+                    .body(html)
+                    .unwrap()
+            });
 
     let resources = warp::path("resources").and(warp::fs::dir("resources"));
 
-    warp::serve(resources.or(hello)).run((IP, PORT)).await;
+    warp::serve(resources.or(init).or(frame)).run((IP, PORT)).await;
 }
