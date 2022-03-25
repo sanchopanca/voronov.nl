@@ -35,7 +35,7 @@ async fn main() {
                     format!(r#"
 <!DOCTYPE html>
 
-<title>Voronov</title>
+<title>Aleksei</title>
 
 <style type="text/css">
 
